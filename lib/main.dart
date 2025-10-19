@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:mini_music_player/pages/home_page.dart';
-import 'package:mini_music_player/themes/dark_mode.dart';
 import 'package:mini_music_player/themes/theme_provider.dart';
 import 'package:provider/provider.dart';
+import 'models/playlist_provider.dart';
 
 void main() {
   runApp(
-    ChangeNotifierProvider(
-        create: (context) => ThemeProvider(),
-        child: const MyApp()
-    ),
+      MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (context) => ThemeProvider()),
+            ChangeNotifierProvider(create: (context) => PlaylistProvider()),
+          ],
+        child: const MyApp(),
+      ),
   );
 }
 
@@ -19,10 +22,14 @@ class MyApp extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: const HomePage(),
-      theme: Provider.of<ThemeProvider>(context).themeData,
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: const HomePage(),
+          theme: themeProvider.themeData,
+        );
+      },
     );
   }
 }
@@ -72,7 +79,10 @@ class _MyHomePageState extends State<MyHomePage> {
         // TRY THIS: Try changing the color here to a specific color (to
         // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
         // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        backgroundColor: Theme
+            .of(context)
+            .colorScheme
+            .inversePrimary,
         // Here we take the value from the MyHomePage object that was created by
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
@@ -99,7 +109,10 @@ class _MyHomePageState extends State<MyHomePage> {
             const Text('You have pushed the button this many times:'),
             Text(
               '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+              style: Theme
+                  .of(context)
+                  .textTheme
+                  .headlineMedium,
             ),
           ],
         ),
