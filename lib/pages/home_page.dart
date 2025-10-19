@@ -16,138 +16,143 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
-  // get the playlist provider
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final PlaylistProvider playlistProvider;
 
   @override
   void initState() {
     super.initState();
-
-    // The context is available here, but we listen:false so it's safe.
     playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
-
-    // THIS IS THE FIX:
-    // Wait until the first frame is rendered before requesting permission.
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // By now, the Android Activity is guaranteed to be ready.
       requestStoragePermissionAndLoad();
     });
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      requestStoragePermissionAndLoad();
+    }
+  }
+
+  Future<bool> _handlePermission() async {
+    try {
+      final sdkInt = await DeviceInfoPlugin().androidInfo.then((info) => info.version.sdkInt);
+      final permission = sdkInt >= 33 ? Permission.audio : Permission.storage;
+
+      var status = await permission.status;
+      if (status.isDenied) {
+        status = await permission.request();
+      }
+
+      if (status.isGranted) {
+        return true;
+      }
+
+      if (status.isPermanentlyDenied) {
+        if (kDebugMode) {
+          print("Permission is permanently denied. Opening app settings...");
+        }
+        await openAppSettings();
+      } else if (kDebugMode) {
+        print("Permission denied.");
+      }
+
+      return false;
+    } catch (e) {
+      if (kDebugMode) {
+        print("Error requesting permission: $e");
+      }
+      return false;
+    }
+  }
+
   void requestStoragePermissionAndLoad() async {
-
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    // Check if songs are already loaded to avoid loading every time
     if (playlistProvider.playlist.isNotEmpty) {
       return;
     }
 
-    try {
-      PermissionStatus status;
-
-      // Check Android version to request the correct permission.
-      if (await DeviceInfoPlugin().androidInfo.then((info) => info.version.sdkInt) >= 33) {
-        status = await Permission.audio.request();
-      } else {
-        status = await Permission.storage.request();
-      }
-
-      if (status.isGranted) {
-        if (kDebugMode) {
-          print("Permission granted. Loading songs automatically...");
-        }
-        playlistProvider.pickAndAddSongs();
-      } else {
-        if (kDebugMode) {
-          print("Storage permission denied. Cannot automatically load songs.");
-        }
-      }
-    } catch (e) {
-      // If any error happens during permission request, log it.
+    if (await _handlePermission()) {
       if (kDebugMode) {
-        print("Error requesting permission: $e");
+        print("Permission granted. Loading songs automatically...");
       }
+      playlistProvider.pickAndAddSongs();
     }
   }
 
-  // go to a song
-  void goToSong(int songIndex){
-    //update current song index
-    playlistProvider.currentSongIndex = songIndex;
-
-    //navigate to song page
-Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (context) => const SongPage(),
-  ),
-);
-
-
+  void _scanForSongs() async {
+    if (await _handlePermission()) {
+      context.read<PlaylistProvider>().pickAndAddSongs();
+    }
   }
+
+  void goToSong(int songIndex) {
+    playlistProvider.currentSongIndex = songIndex;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SongPage(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(title: const Text("P L A Y L I S T")),
       drawer: const MyDrawer(),
-///
       floatingActionButton: FloatingActionButton(
-        child: const Icon(Icons.add),
-        onPressed: () {
-          // When pressed, call the new method we created in the provider.
-          // We use context.read because we are in a button's callback, not building UI.
-          context.read<PlaylistProvider>().pickAndAddSongs();
-        },
+        onPressed: _scanForSongs,
+        child: const Icon(Icons.refresh), // Changed from Icons.add
       ),
-///
       body: Consumer<PlaylistProvider>(
         builder: (context, value, child) {
-          //get the playlist
           final List<Song> playlist = value.playlist;
-///
-          // If the playlist has no songs, display a helpful message.
+
           if (playlist.isEmpty) {
             return const Center(
               child: Padding(
                 padding: EdgeInsets.all(25.0),
+                // Updated text to reflect the new functionality
                 child: Text(
-                  "No songs found.\nTap the '+' button to add music from your device.",
+                  "No songs found.\nTap the refresh button to scan for music.",
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 16),
                 ),
               ),
             );
           }
-///
-          // return list view UI
+
           return ListView.builder(
-              itemCount: playlist.length,
-              itemBuilder: (context, index) {
-                //get individual song
-                final Song song = playlist[index];
-
-                //return list tile UI
-                return ListTile(
-                  title: Text(
-                    song.songName,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                    softWrap: false,
-                  ),
-                  subtitle: Text(
-                    song.artistName,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                    softWrap: false,
-                  ),
-                  leading: AlbumArtImage(imagePath: song.albumArtImagePath),
-
-                  onTap: () => goToSong(index),
-                );
-              },
+            itemCount: playlist.length,
+            itemBuilder: (context, index) {
+              final Song song = playlist[index];
+              return ListTile(
+                title: Text(
+                  song.songName,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+                subtitle: Text(
+                  song.artistName,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+                leading: AlbumArtImage(imagePath: song.albumArtImagePath),
+                onTap: () => goToSong(index),
+              );
+            },
           );
         },
       ),

@@ -34,8 +34,10 @@ subprojects {
         }
     }
 }
-
-project.plugins.withId("com.android.base") {
-    val android = project.extensions.getByType(com.android.build.gradle.BaseExtension::class.java)
-    android.compileSdkVersion(36)
+subprojects {
+    project.plugins.withId("com.android.base") {
+        val android =
+            project.extensions.getByType(com.android.build.gradle.BaseExtension::class.java)
+        android.compileSdkVersion(36)
+    }
 }
