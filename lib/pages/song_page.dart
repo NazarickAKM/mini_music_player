@@ -1,219 +1,167 @@
+// lib/pages/song_page.dart
+
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../components/neu_box.dart';
+import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
+
 import '../models/playlist_provider.dart';
 import '../components/album_art_image.dart';
-import 'package:mini_music_player/components/my_drawer.dart';
+import '../components/neu_box.dart';
 
-class SongPage extends StatelessWidget {
+class SongPage extends StatefulWidget {
   const SongPage({super.key});
 
-  //convert duration into min:sec
-  String formatTime(Duration duration) {
-    String twoDigitSeconds = duration.inSeconds
-        .remainder(60)
-        .toString()
-        .padLeft(2, '0');
-    String formattedTime = "${duration.inMinutes}:$twoDigitSeconds";
+  @override
+  State<SongPage> createState() => _SongPageState();
+}
 
-    return formattedTime;
-  }
+class _SongPageState extends State<SongPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<PlaylistProvider>(
-      builder: (context, value, child) {
-        //get playlist
-        final playlist = value.playlist;
+    // We use `watch` here so the whole page rebuilds if the song changes (e.g., on skip).
+    final playlistProvider = context.watch<PlaylistProvider>();
+    final song = playlistProvider.currentSong;
 
-        //get current song index
-        final currentSong = playlist[value.currentSongIndex ?? 0];
+    // Edge Case: If for some reason there is no current song, show a loading screen.
+    if (song == null) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
 
-        //return scaffold UI
-        return Scaffold(
-          backgroundColor: Theme.of(context).colorScheme.surface,
-
-          drawer: const MyDrawer(),
-
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.only(left: 25, right: 25, bottom: 25),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+    // Now we build the UI with the guaranteed 'song' object for static data.
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(left: 25, right: 25, bottom: 25),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // --- CUSTOM APP BAR ---
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // app bar
-                  AppBar(
-                    backgroundColor: Colors.transparent,
-                    elevation: 0,
-                    leading: IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back),
-                    ),
-                      //title
-                      title: const Text("P L A Y L I S T"),
-                      actions: [
-                      //menu button
-                        Builder(
-                            builder: (context) {
-                              return IconButton(
-                                onPressed: () {
-                                  Scaffold.of(context).openDrawer();
-                                },
-                                icon: const Icon(Icons.menu),
-                              );
-                            }
-                        ),
-                      ],
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back),
                   ),
+                  const Text("N O W   P L A Y I N G"),
+                  const IconButton(onPressed: null, icon: Icon(null)),
+                ],
+              ),
 
-                  const SizedBox(height: 25),
+              const SizedBox(height: 25),
 
-                  //album artwork
-                  NeuBox(
-                    child: Column(
-                      children: [
-                        //image
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: AlbumArtImage(
-                            imagePath: currentSong.albumArtImagePath,
-                            size: 250,
-                          ),
-                        ),
-
-                        //song and artis name and icon
-                        Padding(
-                          padding: const EdgeInsets.all(15.0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              //song and artis name
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      currentSong.songName,
-                                      style: const TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                      maxLines: 1,
-                                      softWrap: false,
-                                    ),
-                                    Text(
-                                      currentSong.artistName,
-                                      overflow: TextOverflow.ellipsis,
-                                      maxLines: 1,
-                                      softWrap: false,
-                                    ),
-                                  ],
+              // --- ALBUM ART AND SONG INFO (using static `song` data) ---
+              NeuBox(
+                child: Column(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: AlbumArtImage(
+                        albumArt: song.albumArt,
+                        size: 300,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(15.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  song.songName,
+                                  style: const TextStyle(
+                                      fontSize: 20, fontWeight: FontWeight.bold),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-
-                              //heart icon
-                              const Icon(Icons.favorite, color: Colors.red),
-                            ],
+                                Text(
+                                  song.artistName,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                          const Icon(Icons.favorite, color: Colors.red),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
+                ),
+              ),
 
-                  const SizedBox(height: 25),
+              const SizedBox(height: 25),
 
-                  //song duration progress
-                  Column(
+              // --- PLAYBACK PROGRESS AND CONTROLS ---
+              StreamBuilder<PlaybackState>(
+                stream: playlistProvider.audioHandler.playbackState,
+                builder: (context, playbackStateSnapshot) {
+                  final playbackState = playbackStateSnapshot.data;
+                  final progress = playbackState?.position ?? Duration.zero;
+                  // **DEFINITIVE FIX:** Provide a fallback of Duration.zero if song.duration is null.
+                  final total = song.duration ?? Duration.zero;
+                  final isPlaying = playbackState?.playing ?? false;
+
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 25.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            //start time
-                            Text(formatTime(value.currentDuration)),
-
-                            //shuffle icon
-                            const Icon(Icons.shuffle),
-
-                            //repeat icon
-                            const Icon(Icons.repeat),
-
-                            //end time
-                            Text(formatTime(value.totalDuration)),
-                          ],
+                        child: ProgressBar(
+                          progress: progress,
+                          total: total, // This is now guaranteed to be non-null
+                          onSeek: playlistProvider.audioHandler.seek,
+                          barHeight: 5.0,
+                          thumbRadius: 8.0,
                         ),
                       ),
-
-                      //song duration progress
-                      SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          thumbShape: const RoundSliderThumbShape(
-                            enabledThumbRadius: 0,
-                          ),
-                        ),
-                        child: Slider(
-                          min: 0,
-                          max: value.totalDuration.inSeconds.toDouble(),
-                          value: value.currentDuration.inSeconds.toDouble(),
-                          activeColor: Colors.grey.shade800,
-                          onChanged: (double double) {
-                            //when the user is sliding around
-                          },
-                          onChangeEnd: (double double) {
-                            //sliding has finished, go to that position in song duration
-                            value.seek(Duration(seconds: double.toInt()));
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  //playback controls
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      //skip previous
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: value.playPrevSong,
-                          child: const NeuBox(child: Icon(Icons.skip_previous)),
-                        ),
-                      ),
-
-                      const SizedBox(width: 20),
-
-                      //play pause
-                      Expanded(
-                        flex: 2,
-                        child: GestureDetector(
-                          onTap: value.pauseOrResume,
-                          child: NeuBox(
-                            child: Icon(
-                              value.isPlaying ? Icons.pause : Icons.play_arrow,
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: playlistProvider.audioHandler.skipToPrevious,
+                              child: const NeuBox(child: Icon(Icons.skip_previous)),
                             ),
                           ),
-                        ),
-                      ),
-
-                      //skip next
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: value.playNextSong,
-                          child: const NeuBox(child: Icon(Icons.skip_next)),
-                        ),
+                          const SizedBox(width: 20),
+                          Expanded(
+                            flex: 2,
+                            child: GestureDetector(
+                              onTap: isPlaying
+                                  ? playlistProvider.audioHandler.pause
+                                  : playlistProvider.audioHandler.play,
+                              child: NeuBox(
+                                child: Icon(isPlaying ? Icons.pause : Icons.play_arrow, size: 40),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 20),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: playlistProvider.audioHandler.skipToNext,
+                              child: const NeuBox(child: Icon(Icons.skip_next)),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
-                  ),
-                ],
+                  );
+                },
               ),
-            ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

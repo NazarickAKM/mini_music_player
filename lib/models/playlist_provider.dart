@@ -1,29 +1,87 @@
-import 'package:audioplayers/audioplayers.dart';
+// lib/models/playlist_provider.dart
+
+import 'dart:io';
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:mini_music_player/models/song.dart';
 import 'package:on_audio_query/on_audio_query.dart';
-
-const String placeholderImagePath = 'assets/images/placeholder.svg';
+import 'package:path_provider/path_provider.dart';
 
 class PlaylistProvider extends ChangeNotifier {
-  final List<Song> _playlist = [];
+  final AudioHandler audioHandler;
+  final OnAudioQuery _audioQuery = OnAudioQuery();
+  List<Song> _playlist = [];
   int? _currentSongIndex;
 
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  final OnAudioQuery _audioQuery = OnAudioQuery();
-
-  Duration _currentDuration = Duration.zero;
-  Duration _totalDuration = Duration.zero;
-
-  PlaylistProvider() {
-    listenToDuration();
+  PlaylistProvider(this.audioHandler) {
+    _listenToCurrentSong();
   }
 
-  bool _isPlaying = false;
+  // **START OF DEFINITIVE FIX: Update local playlist from the handler's stream**
+  void _listenToCurrentSong() {
+    audioHandler.mediaItem.listen((mediaItem) {
+      if (mediaItem == null) {
+        _currentSongIndex = null;
+        notifyListeners();
+        return;
+      }
 
-  /// Scans the device for audio files and populates the playlist.
-  void pickAndAddSongs() async {
-    // Query for songs from the device.
+      // Find the index of the song in our local playlist.
+      final songIndex =
+      _playlist.indexWhere((s) => s.audioPath == mediaItem.extras!['url']);
+
+      if (songIndex != -1) {
+        // Update the current song index.
+        _currentSongIndex = songIndex;
+
+        // **CRITICAL:** Check if the duration has been updated by the handler.
+        final oldSong = _playlist[songIndex];
+        if (oldSong.duration != mediaItem.duration) {
+          // Create a new song instance with the updated duration.
+          _playlist[songIndex] = oldSong.copyWith(duration: mediaItem.duration);
+        }
+      }
+
+      // Notify listeners of all changes.
+      notifyListeners();
+    });
+  }
+  // **END OF DEFINITIVE FIX**
+
+  void togglePlayPause() {
+    final isPlaying = audioHandler.playbackState.value.playing;
+    if (isPlaying) {
+      audioHandler.pause();
+    } else {
+      audioHandler.play();
+    }
+  }
+
+  List<Song> get playlist => _playlist;
+  int? get currentSongIndex => _currentSongIndex;
+  Song? get currentSong {
+    if (_currentSongIndex == null || _currentSongIndex! >= _playlist.length) {
+      return null;
+    }
+    return _playlist[_currentSongIndex!];
+  }
+
+  set currentSongIndex(int? newIndex) {
+    if (newIndex != null && newIndex >= 0 && newIndex < _playlist.length) {
+      _currentSongIndex = newIndex;
+      audioHandler.skipToQueueItem(newIndex);
+    }
+    notifyListeners();
+  }
+
+  Future<void> pickAndAddSongs() async {
+    const minDuration = 60 * 1000;
+    const maxDuration = 10 * 60 * 1000;
+
+    if (!await _audioQuery.permissionsStatus()) {
+      await _audioQuery.permissionsRequest();
+    }
+
     List<SongModel> songs = await _audioQuery.querySongs(
       sortType: SongSortType.TITLE,
       orderType: OrderType.ASC_OR_SMALLER,
@@ -31,122 +89,52 @@ class PlaylistProvider extends ChangeNotifier {
       ignoreCase: true,
     );
 
-    // Clear the existing playlist to avoid duplicates on refresh.
-    _playlist.clear();
+    songs = songs.where((song) {
+      final duration = song.duration ?? 0;
+      return duration > minDuration && duration < maxDuration;
+    }).toList();
 
-    // Map the queried songs to our internal Song objects.
-    var newSongs = songs.map((song) {
-      return Song(
+    _playlist = [];
+    List<MediaItem> mediaItems = [];
+    final tempDir = await getTemporaryDirectory();
+
+    for (var song in songs) {
+      final artwork = await _queryArtwork(song.id);
+      final audioUri = Uri.file(song.data);
+      Uri? artUri;
+
+      if (artwork != null) {
+        final artFile = File('${tempDir.path}/art_${song.id}.jpg');
+        await artFile.writeAsBytes(artwork);
+        artUri = Uri.file(artFile.path);
+      }
+
+      final songObject = Song(
         songName: song.title.isNotEmpty ? song.title : song.displayNameWOExt,
         artistName: song.artist ?? "Unknown Artist",
-        albumArtImagePath: placeholderImagePath,
-        audioPath: song.data,
+        albumArt: artwork,
+        audioPath: audioUri.toString(),
+        // Duration is correctly left null here.
       );
-    });
+      _playlist.add(songObject);
 
-    _playlist.addAll(newSongs);
-    notifyListeners();
-  }
-
-  //play song
-  void play() async {
-    if (_currentSongIndex == null) return;
-    final String path = _playlist[_currentSongIndex!].audioPath;
-    await _audioPlayer.stop();
-    await _audioPlayer.play(DeviceFileSource(path));
-    _isPlaying = true;
-    notifyListeners();
-  }
-
-  //pause current song
-  void pause() async {
-    await _audioPlayer.pause();
-    _isPlaying = false;
-    notifyListeners();
-  }
-
-  //resume song
-  void resume() async {
-    await _audioPlayer.resume();
-    _isPlaying = true;
-    notifyListeners();
-  }
-
-  //pause or resume
-  void pauseOrResume() async {
-    if (_isPlaying) {
-      pause();
-    } else {
-      resume();
+      final mediaItem = MediaItem(
+        id: song.id.toString(),
+        title: song.title.isNotEmpty ? song.title : song.displayNameWOExt,
+        artist: song.artist ?? "Unknown Artist",
+        artUri: artUri,
+        // Duration is correctly left null here.
+        extras: {'url': audioUri.toString(), 'song': songObject},
+      );
+      mediaItems.add(mediaItem);
     }
+
+    await audioHandler.updateQueue(mediaItems);
     notifyListeners();
   }
 
-  //seek
-  void seek(Duration position) async {
-    await _audioPlayer.seek(position);
-  }
-
-  //play next
-  void playNextSong() {
-    if (_currentSongIndex != null) {
-      if (_currentSongIndex! < _playlist.length - 1) {
-        currentSongIndex = _currentSongIndex! + 1;
-      } else {
-        currentSongIndex = 0;
-      }
-    }
-  }
-
-  //play previous
-  void playPrevSong() async {
-    if (_currentDuration.inSeconds > 2) {
-      seek(Duration.zero);
-    } else {
-      if (_currentSongIndex! > 0) {
-        currentSongIndex = _currentSongIndex! - 1;
-      } else {
-        currentSongIndex = _playlist.length - 1;
-      }
-    }
-  }
-
-  //listen to duration
-  void listenToDuration() {
-    _audioPlayer.onDurationChanged.listen((newDuration) {
-      _totalDuration = newDuration;
-      notifyListeners();
-    });
-
-    _audioPlayer.onPositionChanged.listen((newPosition) {
-      _currentDuration = newPosition;
-      notifyListeners();
-    });
-
-    _audioPlayer.onPlayerComplete.listen((event) {
-      playNextSong();
-    });
-  }
-
-  @override
-  void dispose() {
-    _audioPlayer.dispose();
-    super.dispose();
-  }
-
-  //Getters
-  List<Song> get playlist => _playlist;
-  int? get currentSongIndex => _currentSongIndex;
-  bool get isPlaying => _isPlaying;
-  Duration get currentDuration => _currentDuration;
-  Duration get totalDuration => _totalDuration;
-
-  //Setters
-  set currentSongIndex(int? newIndex) {
-    _currentSongIndex = newIndex;
-    if (newIndex != null) {
-      play();
-    }
-    notifyListeners();
+  Future<Uint8List?> _queryArtwork(int songId) async {
+    return _audioQuery.queryArtwork(songId, ArtworkType.AUDIO,
+        format: ArtworkFormat.JPEG, quality: 100, size: 500);
   }
 }
