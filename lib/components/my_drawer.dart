@@ -1,3 +1,4 @@
+// lib/components/my_drawer.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/playlist_provider.dart';
@@ -12,7 +13,7 @@ class MyDrawer extends StatelessWidget {
       backgroundColor: Theme.of(context).colorScheme.surface,
       child: Column(
         children: [
-          //logo
+          // ... (DrawerHeader, Home Tile, Settings Tile are the same)
           DrawerHeader(
             child: Center(
               child: Icon(
@@ -22,7 +23,6 @@ class MyDrawer extends StatelessWidget {
               ),
             ),
           ),
-          //home tile
           Padding(
             padding: const EdgeInsets.only(left: 25.0, top: 25.0),
             child: ListTile(
@@ -31,17 +31,13 @@ class MyDrawer extends StatelessWidget {
               onTap: () => Navigator.pop(context),
             ),
           ),
-          //settings tile
           Padding(
             padding: const EdgeInsets.only(left: 25.0, top: 0),
             child: ListTile(
               title: const Text("S E T T I N G S"),
               leading: const Icon(Icons.settings),
               onTap: () {
-                //pop drawer
                 Navigator.pop(context);
-
-                //navigate to settings page
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -60,7 +56,8 @@ class MyDrawer extends StatelessWidget {
               leading: const Icon(Icons.refresh),
               onTap: () {
                 Navigator.pop(context);
-                context.read<PlaylistProvider>().pickAndAddSongs();
+                // **FIX**: Call the new public method to rescan songs.
+                context.read<PlaylistProvider>().rescanSongs();
               },
             ),
           ),

@@ -1,36 +1,26 @@
-import 'dart:typed_data';
+// lib/models/song.dart
+import 'package:json_annotation/json_annotation.dart';
+part 'song.g.dart';
 
+@JsonSerializable()
 class Song {
+  // Use the audio query's ID as the true unique identifier.
+  final int id;
   final String songName;
   final String artistName;
-  final Uint8List? albumArt;
   final String audioPath;
-  final Duration? duration;
+  final Duration duration;
 
   Song({
+    required this.id,
     required this.songName,
     required this.artistName,
-    required this.albumArt,
     required this.audioPath,
-    this.duration,
+    required this.duration,
   });
 
-  // **DEFINITIVE FIX START:** Add a copyWith method.
-  /// Creates a new Song instance with updated values.
-  Song copyWith({
-    String? songName,
-    String? artistName,
-    Uint8List? albumArt,
-    String? audioPath,
-    Duration? duration,
-  }) {
-    return Song(
-      songName: songName ?? this.songName,
-      artistName: artistName ?? this.artistName,
-      albumArt: albumArt ?? this.albumArt,
-      audioPath: audioPath ?? this.audioPath,
-      duration: duration ?? this.duration,
-    );
-  }
-// **DEFINITIVE FIX END**
+  // No more copyWith or albumArt field needed here.
+
+  factory Song.fromJson(Map<String, dynamic> json) => _$SongFromJson(json);
+  Map<String, dynamic> toJson() => _$SongToJson(this);
 }

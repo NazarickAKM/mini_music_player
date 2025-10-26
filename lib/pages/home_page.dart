@@ -1,6 +1,7 @@
 // lib/pages/home_page.dart
 
-import 'package:audio_service/audio_service.dart'; // <-- MAKE SURE THIS IMPORT IS HERE
+import 'dart:typed_data';
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:mini_music_player/components/my_drawer.dart';
 import 'package:mini_music_player/models/playlist_provider.dart';
@@ -9,6 +10,7 @@ import 'package:mini_music_player/pages/song_page.dart';
 import 'package:provider/provider.dart';
 import '../components/album_art_image.dart';
 
+// FIX: Re-adding the main StatefulWidget class definition.
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -22,41 +24,25 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    // The PlaylistProvider now handles its own loading logic in its constructor.
+    // So, we no longer need to call a method here.
+    // The provider will either load from the file or scan automatically.
     playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
-    // Asynchronously pick songs without blocking the build method.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      playlistProvider.pickAndAddSongs();
-    });
   }
 
+  // Plays a new song and navigates to the song page.
   void goToSong(int songIndex) {
-    // Set the current song index in the provider.
     playlistProvider.currentSongIndex = songIndex;
+    navigateToSongPage();
+  }
 
-    // **FIX START**: Immediately start playback.
-    // This tells the audio handler to not only switch to the new song but also
-    // to start playing it. This ensures the playback state and media item
-    // are updated promptly, preventing the loading screen issue.
-    playlistProvider.audioHandler.play();
-    // **FIX END**
-
-    // Navigate to the song page.
+  // Navigates to the currently playing song page without restarting it.
+  void navigateToSongPage() {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const SongPage()),
     );
   }
-
-  // --- START OF NEW METHOD: Go to the currently playing song page ---
-  /// Navigates to the full song page. This is used when the user taps
-  /// on the mini player.
-  void goToCurrentSongPage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const SongPage()),
-    );
-  }
-  // --- END OF NEW METHOD ---
 
   @override
   Widget build(BuildContext context) {
@@ -71,18 +57,14 @@ class _HomePageState extends State<HomePage> {
         builder: (context, value, child) {
           final List<Song> playlist = value.playlist;
 
-          // Edge Case: Show a message and a button to pick songs if the playlist is empty.
           if (playlist.isEmpty) {
-            return Center(
+            return const Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text('No songs added yet.'),
-                  const SizedBox(height: 10),
-                  ElevatedButton(
-                    onPressed: () => value.pickAndAddSongs(),
-                    child: const Text('Add Songs'),
-                  ),
+                  CircularProgressIndicator(),
+                  SizedBox(height: 10),
+                  Text('Loading Songs...'),
                 ],
               ),
             );
@@ -101,46 +83,52 @@ class _HomePageState extends State<HomePage> {
                       leading: SizedBox(
                         width: 50,
                         height: 50,
-                        child: AlbumArtImage(
-                          albumArt: song.albumArt,
-                          size: 50,
+                        // FIX: Pass the song ID to the updated widget
+                        child: FutureBuilder<Uint8List?>(
+                          future: value.getArtwork(song.id),
+                          builder: (context, snapshot) {
+                            return AlbumArtImage(
+                              albumArt: snapshot.data,
+                              size: 50,
+                            );
+                          },
                         ),
                       ),
-                      onTap: () => goToSong(index),
+                      onTap: () {
+                        if (value.currentSongIndex != index) {
+                          goToSong(index);
+                        } else {
+                          navigateToSongPage();
+                        }
+                      },
                     );
                   },
                 ),
               ),
 
-              // --- MINI PLAYER WRAPPED IN STREAMBUILDER ---
-              // Use a StreamBuilder to listen for the currently playing item from the audio handler.
+              // MINI PLAYER
               StreamBuilder<MediaItem?>(
                   stream: value.audioHandler.mediaItem,
                   builder: (context, mediaItemSnapshot) {
                     final mediaItem = mediaItemSnapshot.data;
-                    // Extract the custom Song object from the MediaItem's extras.
-                    // This is how we get the rich data like album art.
-                    final song = mediaItem?.extras?['song'] as Song?;
-
-                    // Edge Case: If no song is loaded in the handler, show nothing.
-                    if (mediaItem == null || song == null) {
-                      return const SizedBox.shrink(); // Render an empty box.
+                    if (mediaItem == null) {
+                      return const SizedBox.shrink();
                     }
 
-                    // Once we have a song, build the mini player UI.
-                    // This inner StreamBuilder listens for playback state changes (play/pause, position).
+                    final currentSong = value.currentSong;
+
                     return StreamBuilder<PlaybackState>(
                       stream: value.audioHandler.playbackState,
                       builder: (context, playbackStateSnapshot) {
                         final playbackState = playbackStateSnapshot.data;
                         final isPlaying = playbackState?.playing ?? false;
-                        final position = playbackState?.position ?? Duration.zero;
-                        // Get total duration from the MediaItem metadata. Fallback to 1ms to avoid division by zero.
-                        final duration = mediaItem.duration ?? const Duration(milliseconds: 1);
+                        final position =
+                            playbackState?.updatePosition ?? Duration.zero;
+                        final duration =
+                            mediaItem.duration ?? const Duration(milliseconds: 1);
 
-                        // --- START OF PROGRESS BAR IMPLEMENTATION ---
                         return GestureDetector(
-                          onTap: goToCurrentSongPage, // Navigate to full screen player on tap
+                          onTap: navigateToSongPage,
                           child: Container(
                             decoration: BoxDecoration(
                               color: Theme.of(context).colorScheme.secondary,
@@ -149,65 +137,90 @@ class _HomePageState extends State<HomePage> {
                                 topRight: Radius.circular(20),
                               ),
                             ),
-                            // Use a minimal vertical padding for a compact look.
-                            padding: const EdgeInsets.symmetric(vertical: 8.0),
+                            padding: const EdgeInsets.only(top: 8.0),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // The slider acts as the visual progress bar.
-                                SliderTheme(
-                                  data: SliderTheme.of(context).copyWith(
-                                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0), // Hide the thumb
-                                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
-                                    trackHeight: 2, // Make the progress bar thin
-                                  ),
-                                  child: Slider(
-                                    value: position.inMilliseconds.toDouble().clamp(0.0, duration.inMilliseconds.toDouble()),
-                                    min: 0.0,
-                                    max: duration.inMilliseconds.toDouble(),
-                                    onChanged: (sliderValue) {
-                                      // **FIXED**: Access the audio handler from the provider 'value'
-                                      // The 'sliderValue' is the new position from the slider drag.
-                                      value.audioHandler.seek(Duration(milliseconds: sliderValue.round()));
-                                    },
-                                    activeColor: Theme.of(context).colorScheme.primary,
-                                    inactiveColor: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16.0),
+                                  child: SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      thumbShape: const RoundSliderThumbShape(
+                                          enabledThumbRadius: 0),
+                                      overlayShape:
+                                      const RoundSliderOverlayShape(
+                                          overlayRadius: 0),
+                                      trackHeight: 2,
+                                    ),
+                                    child: Slider(
+                                      value: position.inMilliseconds
+                                          .toDouble()
+                                          .clamp(
+                                          0.0,
+                                          duration.inMilliseconds
+                                              .toDouble()),
+                                      min: 0.0,
+                                      max: duration.inMilliseconds.toDouble(),
+                                      onChanged: (sliderValue) {
+                                        value.audioHandler.seek(Duration(
+                                            milliseconds:
+                                            sliderValue.round()));
+                                      },
+                                      activeColor:
+                                      Theme.of(context).colorScheme.primary,
+                                      inactiveColor: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withAlpha(75),
+                                    ),
                                   ),
                                 ),
-
-                                // Player controls and song info
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                  padding: const EdgeInsets.fromLTRB(
+                                      16.0, 0, 16.0, 8.0),
                                   child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                     children: [
-                                      // Wrap the song info in an Expanded widget to prevent UI overflow.
                                       Expanded(
                                         child: Row(
                                           children: [
-                                            ClipRRect(
-                                              borderRadius: BorderRadius.circular(4),
-                                              child: AlbumArtImage(
-                                                albumArt: song.albumArt,
-                                                size: 40,
+                                            if (currentSong != null)
+                                              ClipRRect(
+                                                borderRadius: BorderRadius.circular(4),
+                                                child: FutureBuilder<Uint8List?>(
+                                                  future: value.getArtwork(currentSong.id),
+                                                  builder: (context, snapshot) {
+                                                    return AlbumArtImage(
+                                                      albumArt: snapshot.data,
+                                                      size: 40,
+                                                    );
+                                                  },
+                                                ),
                                               ),
-                                            ),
                                             const SizedBox(width: 10),
-                                            // Also wrap this Column in an Expanded to allow text to truncate gracefully.
                                             Expanded(
                                               child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                mainAxisSize: MainAxisSize.min,
+                                                crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                                mainAxisSize:
+                                                MainAxisSize.min,
                                                 children: [
                                                   Text(
-                                                    song.songName,
-                                                    style: const TextStyle(fontWeight: FontWeight.bold),
-                                                    overflow: TextOverflow.ellipsis, // Prevent long text from overflowing.
+                                                    mediaItem.title,
+                                                    style: const TextStyle(
+                                                        fontWeight:
+                                                        FontWeight.bold),
+                                                    overflow:
+                                                    TextOverflow.ellipsis,
                                                   ),
                                                   Text(
-                                                    song.artistName,
-                                                    style: const TextStyle(fontSize: 12),
-                                                    overflow: TextOverflow.ellipsis, // Prevent long text from overflowing.
+                                                    mediaItem.artist ?? '',
+                                                    style: const TextStyle(
+                                                        fontSize: 12),
+                                                    overflow:
+                                                    TextOverflow.ellipsis,
                                                   ),
                                                 ],
                                               ),
@@ -215,16 +228,28 @@ class _HomePageState extends State<HomePage> {
                                           ],
                                         ),
                                       ),
-                                      // Playback control buttons
                                       Row(
                                         children: [
-                                          IconButton(onPressed: value.audioHandler.skipToPrevious, icon: const Icon(Icons.skip_previous)),
                                           IconButton(
-                                            iconSize: 32, // Make the play/pause button slightly larger
-                                            onPressed: isPlaying ? value.audioHandler.pause : value.audioHandler.play,
-                                            icon: Icon(isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled),
+                                              onPressed: value.audioHandler
+                                                  .skipToPrevious,
+                                              icon: const Icon(
+                                                  Icons.skip_previous)),
+                                          IconButton(
+                                            iconSize: 32,
+                                            onPressed: isPlaying
+                                                ? value.audioHandler.pause
+                                                : value.audioHandler.play,
+                                            icon: Icon(isPlaying
+                                                ? Icons.pause_circle_filled
+                                                : Icons
+                                                .play_circle_filled),
                                           ),
-                                          IconButton(onPressed: value.audioHandler.skipToNext, icon: const Icon(Icons.skip_next)),
+                                          IconButton(
+                                              onPressed: value
+                                                  .audioHandler.skipToNext,
+                                              icon:
+                                              const Icon(Icons.skip_next)),
                                         ],
                                       ),
                                     ],
@@ -234,11 +259,9 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                         );
-                        // --- END OF PROGRESS BAR IMPLEMENTATION ---
                       },
                     );
-                  }
-              ),
+                  }),
             ],
           );
         },

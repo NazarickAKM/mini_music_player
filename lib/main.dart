@@ -1,36 +1,24 @@
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
-import 'package:mini_music_player/audio_handler.dart';
+import 'package:mini_music_player/models/playlist_provider.dart';
+import 'package:mini_music_player/themes/theme_provider.dart'; // <-- Import ThemeProvider
 import 'package:mini_music_player/pages/home_page.dart';
-import 'package:mini_music_player/themes/theme_provider.dart';
 import 'package:provider/provider.dart';
-
-import 'models/playlist_provider.dart';
+import 'audio_handler.dart';
 
 late AudioHandler _audioHandler;
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
   _audioHandler = await AudioService.init(
-    builder: () => AudioPlayerHandler(), // Use your custom handler
+    builder: () => AudioPlayerHandler(),
     config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.ryanheise.myapp.channel.audio',
-      androidNotificationChannelName: 'Audio playback',
+      androidNotificationChannelId: 'com.akm.mmp.channel.audio',
+      androidNotificationChannelName: 'Mini Music Player',
       androidNotificationOngoing: true,
     ),
   );
-  runApp(
-    MultiProvider(
-      providers: [
-        // Provider for Theme
-        ChangeNotifierProvider(create: (context) => ThemeProvider()),
-
-        // Provider for Playlist, passing the audioHandler to it
-        ChangeNotifierProvider(create: (context) => PlaylistProvider(_audioHandler)),
-      ],
-      child: const MyApp(),
-    ),
-  );
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -38,14 +26,23 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ThemeProvider>(
-      builder: (context, themeProvider, child) {
-        return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          home: const HomePage(),
-          theme: themeProvider.themeData,
-        );
-      },
+    // **DEFINITIVE FIX:** Use MultiProvider to provide both services
+    return MultiProvider(
+      providers: [
+        // Theme provider
+        ChangeNotifierProvider(create: (context) => ThemeProvider()),
+        // Playlist provider
+        ChangeNotifierProvider(create: (context) => PlaylistProvider(_audioHandler)),
+      ],
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, child) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            home: const HomePage(),
+            theme: themeProvider.themeData, // Use the theme from the provider
+          );
+        },
+      ),
     );
   }
 }
