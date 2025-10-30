@@ -23,7 +23,6 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   Future<void> loadPlaylist() async {
-    // ... (This part of the method is unchanged)
     final file = await _getPlaylistFile();
     if (await file.exists()) {
       debugPrint("[PROVIDER-LOG] Found saved playlist. Loading from file...");
@@ -37,7 +36,9 @@ class PlaylistProvider extends ChangeNotifier {
         return;
       }
     } else {
-      debugPrint("[PROVIDER-LOG] No saved playlist found. Scanning for songs...");
+      debugPrint(
+        "[PROVIDER-LOG] No saved playlist found. Scanning for songs...",
+      );
       await rescanSongs();
       return;
     }
@@ -49,7 +50,7 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   Future<void> rescanSongs() async {
-    // ... (This method is also correct from before)
+    debugPrint("[PROVIDER-LOG] Rescanning songs from device storage...");
     await _scanAndSaveSongs();
     if (_playlist.isNotEmpty) {
       await _updateAudioHandlerWithPlaylist();
@@ -58,9 +59,12 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   Future<void> _scanAndSaveSongs() async {
+    // Request permission if not granted
     if (!await _audioQuery.permissionsStatus()) {
       await _audioQuery.permissionsRequest();
     }
+
+    // Query for songs
     List<SongModel> songsFromQuery = await _audioQuery.querySongs(
       sortType: SongSortType.TITLE,
       orderType: OrderType.ASC_OR_SMALLER,
@@ -68,17 +72,37 @@ class PlaylistProvider extends ChangeNotifier {
       ignoreCase: true,
     );
 
+
     const minDuration = 60 * 1000;
-    songsFromQuery = songsFromQuery.where((song) => (song.duration ?? 0) > minDuration).toList();
+    songsFromQuery = songsFromQuery
+        .where((song) => (song.duration ?? 0) > minDuration)
+        .toList();
 
-    _playlist = songsFromQuery.map((songModel) => Song(
-      id: songModel.id,
-      songName: songModel.title.isNotEmpty ? songModel.title : songModel.displayNameWOExt,
-      artistName: songModel.artist ?? "Unknown Artist",
-      audioPath: songModel.data,
-      duration: Duration(milliseconds: songModel.duration ?? 0),
-    )).toList();
+    // Preserve favorite status during rescan.
+    final favoriteSongIds =
+    _playlist.where((s) => s.isFavorite).map((s) => s.id).toSet();
+    if (favoriteSongIds.isNotEmpty) {
+      debugPrint(
+        "[PROVIDER-LOG] Preserving ${favoriteSongIds.length} favorite songs during rescan.",
+      );
+    }
 
+    _playlist = songsFromQuery.map((songModel) {
+      return Song(
+        id: songModel.id,
+        songName: songModel.title.isNotEmpty
+            ? songModel.title
+            : songModel.displayNameWOExt,
+        artistName: songModel.artist ?? "Unknown Artist",
+        audioPath: songModel.data,
+        duration: Duration(milliseconds: songModel.duration ?? 0),
+        isFavorite: favoriteSongIds.contains(songModel.id),
+      );
+    }).toList();
+
+    debugPrint("[PROVIDER-LOG] Song scan complete. Found ${_playlist.length} songs.");
+
+    // Save the newly scanned and corrected playlist to the file.
     await _savePlaylistToFile();
   }
 
@@ -90,27 +114,55 @@ class PlaylistProvider extends ChangeNotifier {
     }
 
     // Otherwise, fetch it, cache it, and then return it.
-    final artwork = await _audioQuery.queryArtwork(songId, ArtworkType.AUDIO, size: 800);
+    final artwork = await _audioQuery.queryArtwork(
+      songId,
+      ArtworkType.AUDIO,
+      size: 800,
+    );
     if (artwork != null) {
       _artworkCache[songId] = artwork;
     }
     return artwork;
   }
 
+  // **NEW METHOD**: Toggles the favorite status of a song.
+  Future<void> toggleFavorite(int songId) async {
+    final songIndex = _playlist.indexWhere((s) => s.id == songId);
+    if (songIndex != -1) {
+      // Toggle the favorite status.
+      _playlist[songIndex].isFavorite = !_playlist[songIndex].isFavorite;
+      debugPrint(
+        "[PROVIDER-LOG] Toggled favorite for song ID $songId. New status: ${_playlist[songIndex].isFavorite}",
+      );
+
+      // Persist the change to the playlist file.
+      await _savePlaylistToFile();
+
+      // Notify listeners to update the UI.
+      notifyListeners();
+    } else {
+      debugPrint(
+        "[PROVIDER-LOG] ERROR: Could not find song with ID $songId to toggle favorite status.",
+      );
+    }
+  }
+
   Future<void> _updateAudioHandlerWithPlaylist() async {
     if (_playlist.isEmpty) return;
 
-    final mediaItems = _playlist.map((song) => MediaItem(
-      id: song.id.toString(),
-      title: song.songName,
-      artist: song.artistName,
-      duration: song.duration,
-      extras: {'url': song.audioPath},
-    )).toList();
+    final mediaItems = _playlist
+        .map(
+          (song) => MediaItem(
+        id: song.id.toString(),
+        title: song.songName,
+        artist: song.artistName,
+        duration: song.duration,
+        extras: {'url': song.audioPath},
+      ),
+    )
+        .toList();
     await audioHandler.updateQueue(mediaItems);
   }
-
-  // ... (rest of the file is unchanged)
 
   Future<File> _getPlaylistFile() async {
     final directory = await getApplicationDocumentsDirectory();
@@ -126,7 +178,9 @@ class PlaylistProvider extends ChangeNotifier {
   void _listenToCurrentSongChangesFromHandler() {
     audioHandler.mediaItem.listen((mediaItem) {
       if (mediaItem == null) return;
-      final index = _playlist.indexWhere((s) => s.id.toString() == mediaItem.id);
+      final index = _playlist.indexWhere(
+            (s) => s.id.toString() == mediaItem.id,
+      );
       if (index != -1 && _currentSongIndex != index) {
         _currentSongIndex = index;
         notifyListeners();
@@ -140,8 +194,15 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   List<Song> get playlist => _playlist;
+
+  // **NEW GETTER**: Returns a list of only the favorite songs.
+  List<Song> get favorites => _playlist.where((s) => s.isFavorite).toList();
+
   int? get currentSongIndex => _currentSongIndex;
-  Song? get currentSong => (_currentSongIndex != null && _playlist.isNotEmpty) ? _playlist[_currentSongIndex!] : null;
+
+  Song? get currentSong => (_currentSongIndex != null && _playlist.isNotEmpty)
+      ? _playlist[_currentSongIndex!]
+      : null;
 
   set currentSongIndex(int? newIndex) {
     if (newIndex != null && newIndex >= 0 && newIndex < _playlist.length) {

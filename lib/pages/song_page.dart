@@ -77,6 +77,13 @@ class _SongPageState extends State<SongPage> {
       );
     }
 
+    // **VALIDATION LOGGING**: Add logs to inspect the duration value as seen by the SongPage.
+    debugPrint("[SONG_PAGE_LOG] Building page for song: '${song.songName}'");
+    debugPrint("[SONG_PAGE_LOG]   -> Duration from PlaylistProvider: ${song.duration}");
+    debugPrint("[SONG_PAGE_LOG]   -> Duration in total minutes: ${song.duration.inMinutes}");
+    debugPrint("[SONG_PAGE_LOG]   -> Duration in total seconds: ${song.duration.inSeconds}");
+    debugPrint("[SONG_PAGE_LOG]   -> Raw milliseconds value: ${song.duration.inMilliseconds}");
+
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       body: SafeArea(
@@ -136,7 +143,17 @@ class _SongPageState extends State<SongPage> {
                                 ],
                               ),
                             ),
-                            const Icon(Icons.favorite, color: Colors.red),
+                            // **MODIFICATION**: Make the favorite icon interactive.
+                            IconButton(
+                              icon: Icon(
+                                song.isFavorite ? Icons.favorite : Icons.favorite_border,
+                                color: song.isFavorite ? Colors.red : Colors.grey,
+                              ),
+                              onPressed: () {
+                                // Use context.read inside callbacks to prevent rebuild loops.
+                                context.read<PlaylistProvider>().toggleFavorite(song.id);
+                              },
+                            ),
                           ],
                         ),
                       ),

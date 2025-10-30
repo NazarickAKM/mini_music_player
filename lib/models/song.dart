@@ -1,15 +1,13 @@
 // lib/models/song.dart
-import 'package:json_annotation/json_annotation.dart';
-part 'song.g.dart';
+import 'package:flutter/foundation.dart';
 
-@JsonSerializable()
 class Song {
-  // Use the audio query's ID as the true unique identifier.
   final int id;
   final String songName;
   final String artistName;
   final String audioPath;
   final Duration duration;
+  bool isFavorite; // Add this line
 
   Song({
     required this.id,
@@ -17,10 +15,35 @@ class Song {
     required this.artistName,
     required this.audioPath,
     required this.duration,
+    this.isFavorite = false, // Initialize as false
   });
 
-  // No more copyWith or albumArt field needed here.
+  // Since we are adding a new field, we need to update fromJson and toJson
+  factory Song.fromJson(Map<String, dynamic> json) {
+    return Song(
+      id: json['id'],
+      songName: json['songName'],
+      artistName: json['artistName'],
+      audioPath: json['audioPath'],
+      duration: Duration(milliseconds: json['duration']),
+      // Load favorite status, default to false if not present
+      isFavorite: json['isFavorite'] ?? false,
+    );
+  }
 
-  factory Song.fromJson(Map<String, dynamic> json) => _$SongFromJson(json);
-  Map<String, dynamic> toJson() => _$SongToJson(this);
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'songName': songName,
+      'artistName': artistName,
+      'audioPath': audioPath,
+      'duration': duration.inMilliseconds,
+      'isFavorite': isFavorite, // Save favorite status
+    };
+  }
+
+  @override
+  String toString() {
+    return 'Song{id: $id, name: "$songName", isFavorite: $isFavorite}';
+  }
 }
