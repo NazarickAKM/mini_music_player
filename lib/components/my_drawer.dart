@@ -1,8 +1,6 @@
-// lib/components/my_drawer.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/playlist_provider.dart';
-// **ADDITION**: Import the new favorites page.
 import '../pages/favorites_page.dart';
 import '../pages/settings_page.dart';
 
@@ -72,10 +70,9 @@ class MyDrawer extends StatelessWidget {
             padding: const EdgeInsets.only(left: 25.0, top: 0),
             child: ListTile(
               title: const Text("R E F R E S H"),
-              leading: const Icon(Icons.refresh),
+              leading: const Icon(Icons.refresh_sharp),
               onTap: () {
                 Navigator.pop(context);
-                // **FIX**: Call the new public method to rescan songs.
                 context.read<PlaylistProvider>().rescanSongs();
               },
             ),
