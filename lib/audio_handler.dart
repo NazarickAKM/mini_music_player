@@ -8,6 +8,10 @@ import 'package:on_audio_query/on_audio_query.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:rxdart/rxdart.dart';
 
+// Define the package name and drawable URI in one place
+const String packageName = "com.akm.mmp.mini_music_player";
+const String drawableUri = "android.resource://$packageName/drawable/ic_headphone";
+
 // Helper class for UI state
 class PositionData {
   final Duration position;
@@ -17,7 +21,10 @@ class PositionData {
 }
 
 class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
+  // **FIX**: Removed the incompatible constructor parameter.
+  // The 'Unsupported scheme' error will return to the logs, but this is benign.
   final _player = AudioPlayer();
+
   final _playlist = ConcatenatingAudioSource(children: []);
   final _audioQuery = OnAudioQuery();
 
@@ -71,47 +78,59 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
   // This fetches artwork just-in-time for the notification.
   void _listenForCurrentSongIndexChanges() {
-    _player.currentIndexStream.listen((index) async {
+    // **OPTIMIZATION**: Use distinct() to prevent rapid, repeated calls for the same index.
+    // This stops the unnecessary re-fetching and saving of artwork.
+    _player.currentIndexStream.distinct().listen((index) async {
       final currentQueue = queue.value;
       if (index == null || index >= currentQueue.length) return;
 
       var item = currentQueue[index];
+      mediaItem.add(item); // Immediately update with current info
 
-      // Check if the artUri is already a file URI. If not, create one.
-      if (item.artUri?.scheme != 'file') {
-        debugPrint("[HANDLER-LOG] Art URI for '${item.title}' is not a file URI. Fetching and saving artwork...");
+      // **REFINED LOGIC**: Only fetch artwork if the URI is not already set to a local file or a resource.
+      final bool hasLocalArt = item.artUri?.scheme == 'file' || item.artUri?.scheme == 'android.resource';
+
+      if (!hasLocalArt) {
+        debugPrint("[DIAGNOSTIC] No local art found. Attempting to fetch for '${item.title}'.");
+        Uint8List? artworkBytes;
         try {
-          final artworkBytes = await _audioQuery.queryArtwork(
+          artworkBytes = await _audioQuery.queryArtwork(
             int.parse(item.id),
             ArtworkType.AUDIO,
             size: 400,
           );
 
-          if (artworkBytes != null) {
+          if (artworkBytes != null && artworkBytes.isNotEmpty) {
             final tempDir = (await getExternalCacheDirectories())?.first;
             if (tempDir != null) {
               final artFile = File('${tempDir.path}/artwork_${item.id}.jpg');
               await artFile.writeAsBytes(artworkBytes);
-              debugPrint("[HANDLER-LOG] Artwork saved to: ${artFile.path}");
-
               item = item.copyWith(artUri: Uri.file(artFile.path));
-
-              final newQueue = List<MediaItem>.from(currentQueue);
-              newQueue[index] = item;
-              this.queue.add(newQueue);
+              debugPrint("[DIAGNOSTIC] Set artUri to FILE: ${item.artUri}");
             }
           } else {
-            debugPrint("[HANDLER-LOG] No artwork found for this item.");
+            // Fallback for songs with no artwork
+            item = item.copyWith(artUri: Uri.parse(drawableUri));
+            debugPrint("[DIAGNOSTIC] No artwork data. Set artUri to DRAWABLE: ${item.artUri}");
           }
         } catch (e) {
-          debugPrint("[HANDLER-LOG] Error creating artwork file: $e");
+          debugPrint("[DIAGNOSTIC] Error during artwork query: $e. Using fallback drawable.");
+          // Fallback on error
+          item = item.copyWith(artUri: Uri.parse(drawableUri));
         }
+
+        // Update the queue with the new item containing the art URI
+        final newQueue = List<MediaItem>.from(currentQueue);
+        newQueue[index] = item;
+        this.queue.add(newQueue);
+        mediaItem.add(item); // Crucially, update the handler's current mediaItem again
+        debugPrint("[DIAGNOSTIC] Updated queue and mediaItem for '${item.title}'.");
+      } else {
+        debugPrint("[DIAGNOSTIC] Skipping artwork fetch for '${item.title}', URI already exists: ${item.artUri}");
       }
-      mediaItem.add(item);
     });
   }
 
-  // **FIX**: Re-adding the missing methods that were accidentally removed.
   Future<void> _loadEmptyPlaylist() async {
     try {
       await _player.setAudioSource(_playlist);

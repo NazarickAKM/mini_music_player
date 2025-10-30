@@ -1,4 +1,3 @@
-
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:mini_music_player/models/playlist_provider.dart';
@@ -15,6 +14,7 @@ Future<void> main() async {
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.akm.mmp.channel.audio',
       androidNotificationChannelName: 'Mini Music Player',
+      androidNotificationIcon: 'drawable/ic_music_note', // <-- Use custom icon
       androidNotificationOngoing: true,
     ),
   );
