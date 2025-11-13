@@ -1,7 +1,7 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:mini_music_player/models/playlist_provider.dart';
-import 'package:mini_music_player/themes/theme_provider.dart'; // <-- Import ThemeProvider
+import 'package:mini_music_player/themes/theme_provider.dart';
 import 'package:mini_music_player/pages/home_page.dart';
 import 'package:provider/provider.dart';
 import 'audio_handler.dart';
@@ -14,7 +14,7 @@ Future<void> main() async {
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.akm.mmp.channel.audio',
       androidNotificationChannelName: 'Mini Music Player',
-      androidNotificationIcon: 'drawable/ic_music_note', // <-- Use custom icon
+      androidNotificationIcon: 'drawable/ic_music_note',
       androidNotificationOngoing: true,
     ),
   );
@@ -26,7 +26,6 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // **DEFINITIVE FIX:** Use MultiProvider to provide both services
     return MultiProvider(
       providers: [
         // Theme provider
@@ -39,7 +38,7 @@ class MyApp extends StatelessWidget {
           return MaterialApp(
             debugShowCheckedModeBanner: false,
             home: const HomePage(),
-            theme: themeProvider.themeData, // Use the theme from the provider
+            theme: themeProvider.themeData,
           );
         },
       ),

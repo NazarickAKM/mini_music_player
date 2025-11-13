@@ -53,5 +53,5 @@ flutter_native_splash:
   ios: true
 
   android_12:
-    image: assets/images/ic_splash.png
+    image: "@drawable/ic_splash_12"
     color: "#060606"
